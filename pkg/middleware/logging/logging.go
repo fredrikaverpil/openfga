@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -146,16 +144,6 @@ func reportable(l logger.Logger) interceptors.CommonReportableFunc {
 		spanCtx := trace.SpanContextFromContext(ctx)
 		if spanCtx.HasTraceID() {
 			fields = append(fields, zap.String(traceIDKey, spanCtx.TraceID().String()))
-			fields = append(fields,
-				zap.String("logging.googleapis.com/trace",
-					fmt.Sprintf("projects/%s/traces/%s", os.Getenv("GOOGLE_CLOUD_PROJECT"), spanCtx.TraceID().String())),
-			)
-			if spanCtx.HasSpanID() {
-				fields = append(fields,
-					zap.String("logging.googleapis.com/spanId", spanCtx.SpanID().String()),
-				)
-			}
-			fields = append(fields, zap.Bool("logging.googleapis.com/trace_sampled", spanCtx.IsSampled()))
 		}
 
 		if userAgent, ok := userAgentFromContext(ctx); ok {

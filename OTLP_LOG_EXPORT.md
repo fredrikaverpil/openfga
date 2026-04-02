@@ -35,48 +35,34 @@ OTLP-exported logs had no trace correlation.
 
 Key file: `pkg/middleware/logging/logging.go`
 
-### 3. GCP stdout trace correlation fields (`1608656f`, debug)
-
-Added `logging.googleapis.com/trace`, `logging.googleapis.com/spanId`, and
-`logging.googleapis.com/trace_sampled` as JSON fields in the stdout log output.
-
-Cloud Run's built-in log agent recognizes these field names and promotes them to
-top-level Cloud Logging `LogEntry` fields, enabling log-trace correlation for
-the stdout path (without OTLP).
-
-This is currently hardcoded for GCP and should be made configurable before
-merging upstream.
-
-Key file: `pkg/middleware/logging/logging.go`
-
 ## How trace correlation works
 
-There are two independent paths for trace-correlated logs:
+The otelzap bridge attaches the span context (`traceID`, `spanID`) from the
+`context.Context` to each OTLP log record. The OTel collector's `googlecloud`
+exporter then automatically maps these to Cloud Logging's `LogEntry.trace` and
+`LogEntry.spanId` fields — no GCP-specific code is needed in OpenFGA.
 
 ```
-                     gRPC request (with trace context)
-                                  |
-                                  v
-                    OpenFGA gRPC logging interceptor
-                    (extracts spanCtx from ctx)
-                                  |
-                   +--------------+--------------+
-                   |                             |
-                   v                             v
-            stdout (JSON)                 otelzap bridge
-            with logging.googleapis.com   (attaches spanCtx
-            trace/spanId fields           to OTel log record)
-                   |                             |
-                   v                             v
-         Cloud Run log agent              OTLP collector
-         (promotes fields to              (googlecloud exporter
-          LogEntry.trace/spanId)           maps to LogEntry)
-                   |                             |
-                   +-------------+---------------+
-                                 |
-                                 v
-                          Cloud Logging
-                    (logs correlated by trace)
+gRPC request (with trace context)
+              |
+              v
+OpenFGA gRPC logging interceptor
+(*WithContext methods inject ctx)
+              |
+              v
+       otelzap bridge
+       (attaches spanCtx
+        to OTel log record)
+              |
+              v
+       OTLP collector
+       (googlecloud exporter auto-maps
+        traceID → LogEntry.trace,
+        spanID  → LogEntry.spanId)
+              |
+              v
+       Cloud Logging
+       (logs correlated by trace)
 ```
 
 ## Configuration
@@ -87,7 +73,6 @@ New env vars:
 | ------------------------------ | ------------------------------------------------------------------ |
 | `OPENFGA_LOG_OTLP_ENDPOINT`    | OTLP collector endpoint (e.g. `127.0.0.1:4317`). Empty = disabled. |
 | `OPENFGA_LOG_OTLP_TLS_ENABLED` | Use TLS for OTLP connection. Default: `false`.                     |
-| `GOOGLE_CLOUD_PROJECT`         | GCP project ID for stdout trace field formatting.                  |
 
 ## Infrastructure requirements (GCP)
 
@@ -141,10 +126,3 @@ env:
     value: "127.0.0.1:4317"
 ```
 
-If using the GCP stdout trace correlation path (commit `1608656f`), also set:
-
-```yaml
-env:
-  - name: GOOGLE_CLOUD_PROJECT
-    value: "<your-gcp-project-id>"
-```
