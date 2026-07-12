@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -35,6 +36,15 @@ type Logger interface {
 // detects the field by its value's type, not by this key; contextFilterCore
 // strips it from stdout output the same way.
 const ctxFieldKey = "ctx"
+
+// Sampling parameters mirroring zap.NewProductionConfig: per message string
+// and per samplingTick, the first samplingInitial entries pass and then only
+// every samplingThereafter-th does.
+const (
+	samplingTick       = time.Second
+	samplingInitial    = 100
+	samplingThereafter = 100
+)
 
 // NewNoopLogger provides a noop logger.
 func NewNoopLogger() *ZapLogger {
@@ -200,6 +210,10 @@ func NewLogger(options ...OptionLogger) (*ZapLogger, error) {
 	}
 
 	cfg := zap.NewProductionConfig()
+	// Disable the built-in sampler wrap: it would cover only the stdout core.
+	// Sampling is re-applied below, around the final core, so that it also
+	// covers the OTEL core when one is teed in.
+	cfg.Sampling = nil
 	cfg.Level = level
 	cfg.OutputPaths = logOptions.outputPaths
 	cfg.EncoderConfig.TimeKey = "timestamp"
@@ -240,6 +254,13 @@ func NewLogger(options ...OptionLogger) (*ZapLogger, error) {
 		}))
 	}
 
+	// The sampler wraps the outermost core — the tee, when OTLP export is on —
+	// so the keep/drop decision is made once, before fan-out, and stdout and
+	// OTLP receive the same sampled stream.
+	log = log.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return zapcore.NewSamplerWithOptions(c, samplingTick, samplingInitial, samplingThereafter)
+	}))
+
 	if logOptions.format == "json" {
 		log = log.With(zap.String("build.version", build.Version), zap.String("build.commit", build.Commit))
 	}
@@ -260,8 +281,12 @@ func (c *contextFilterCore) With(fields []zapcore.Field) zapcore.Core {
 	return &contextFilterCore{Core: c.Core.With(filterContextFields(fields))}
 }
 
+// Check gates on the level alone rather than delegating to the wrapped core's
+// Check. That is only sound while the wrapped core's own Check has no
+// additional drop logic: NewLogger wraps the plain stdout core here and
+// applies the sampler outside the tee.
 func (c *contextFilterCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
-	if c.Core.Enabled(entry.Level) {
+	if c.Enabled(entry.Level) {
 		return ce.AddCore(entry, c)
 	}
 	return ce

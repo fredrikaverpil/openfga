@@ -2,7 +2,9 @@ package logger
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -228,6 +230,51 @@ func TestOTELCoreRespectsLogLevel(t *testing.T) {
 
 	l.WarnWithContext(context.Background(), "at the configured level")
 	require.Len(t, allRecords(recorder.Result()), 1)
+}
+
+// countLines returns the number of log lines written to the given file.
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return strings.Count(string(data), "\n")
+}
+
+func TestSamplingDropsRepeatedEntries(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.log")
+	l, err := NewLogger(WithLevel("info"), WithOutputPaths(out))
+	require.NoError(t, err)
+
+	const total = 500
+	for i := 0; i < total; i++ {
+		l.Info("repeated message")
+	}
+
+	// Repeated identical messages beyond the sampler's budget must be dropped,
+	// matching zap's production behavior.
+	lines := countLines(t, out)
+	require.GreaterOrEqual(t, lines, samplingInitial)
+	require.Less(t, lines, total)
+}
+
+func TestSamplingAppliesToOTELCore(t *testing.T) {
+	recorder := logtest.NewRecorder()
+	core := otelzap.NewCore("openfga", otelzap.WithLoggerProvider(recorder))
+
+	out := filepath.Join(t.TempDir(), "out.log")
+	l, err := NewLogger(WithLevel("info"), WithOTELCore(core), WithOutputPaths(out))
+	require.NoError(t, err)
+
+	const total = 500
+	for i := 0; i < total; i++ {
+		l.InfoWithContext(context.Background(), "repeated message")
+	}
+
+	// The sampler wraps the tee, so the keep/drop decision is shared: the OTEL
+	// core must be sampled too, and both streams must be identical.
+	records := len(allRecords(recorder.Result()))
+	require.Less(t, records, total)
+	require.Equal(t, countLines(t, out), records)
 }
 
 func TestWithFields(t *testing.T) {
