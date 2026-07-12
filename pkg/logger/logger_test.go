@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.opentelemetry.io/otel/log/logtest"
@@ -111,6 +112,43 @@ func TestWithContext(t *testing.T) {
 			// Without an OTEL core the context must not be attached as a field.
 			expectedZapFields := map[string]interface{}{}
 			require.Equal(t, expectedZapFields, actualMessage.ContextMap())
+		})
+	}
+}
+
+func TestWithContextAppendsCtxzapTags(t *testing.T) {
+	for _, name := range []string{
+		"DebugWithContext",
+		"InfoWithContext",
+		"WarnWithContext",
+		"ErrorWithContext",
+	} {
+		t.Run(name, func(t *testing.T) {
+			observerLogger, logs := observer.New(zap.DebugLevel)
+			dut := ZapLogger{Logger: zap.New(observerLogger)}
+
+			ctx := grpc_ctxtags.SetInContext(context.Background(), grpc_ctxtags.NewTags())
+			grpc_ctxtags.Extract(ctx).Set("request_id", "abc-123")
+
+			const testMessage = "ABC"
+			switch name {
+			case "DebugWithContext":
+				dut.DebugWithContext(ctx, testMessage)
+			case "InfoWithContext":
+				dut.InfoWithContext(ctx, testMessage)
+			case "WarnWithContext":
+				dut.WarnWithContext(ctx, testMessage)
+			case "ErrorWithContext":
+				dut.ErrorWithContext(ctx, testMessage)
+			}
+			require.Equal(t, 1, logs.Len())
+
+			// Every *WithContext method must enrich the entry with the
+			// request-scoped ctxzap tags, so callers never append them.
+			expectedZapFields := map[string]interface{}{
+				"request_id": "abc-123",
+			}
+			require.Equal(t, expectedZapFields, logs.All()[0].ContextMap())
 		})
 	}
 }

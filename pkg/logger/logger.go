@@ -22,7 +22,9 @@ type Logger interface {
 	Fatal(string, ...zap.Field)
 	With(...zap.Field) Logger
 
-	// These are the equivalent logger function but with context provided
+	// These are the equivalent logger function but with context provided.
+	// Implementations enrich the entry with the request-scoped ctxzap tags
+	// carried by the context; callers must not append those tags themselves.
 	DebugWithContext(context.Context, string, ...zap.Field)
 	InfoWithContext(context.Context, string, ...zap.Field)
 	WarnWithContext(context.Context, string, ...zap.Field)
@@ -97,38 +99,39 @@ func (l *ZapLogger) Fatal(msg string, fields ...zap.Field) {
 	l.Logger.Fatal(msg, fields...)
 }
 
-// withContextField attaches ctx as a field for the otelzap bridge to consume.
-// It is a no-op unless an OTEL core is configured.
-func (l *ZapLogger) withContextField(ctx context.Context, fields []zap.Field) []zap.Field {
-	if !l.hasOTELCore {
-		return fields
+// contextFields enriches fields with the request-scoped ctxzap tags carried
+// by ctx and, when an OTEL core is teed in, attaches ctx itself as a field
+// for the otelzap bridge to consume.
+func (l *ZapLogger) contextFields(ctx context.Context, fields []zap.Field) []zap.Field {
+	fields = append(fields, ctxzap.TagsToFields(ctx)...)
+	if l.hasOTELCore {
+		fields = append(fields, zap.Any(ctxFieldKey, ctx))
 	}
-	return append(fields, zap.Any(ctxFieldKey, ctx))
+	return fields
 }
 
 func (l *ZapLogger) DebugWithContext(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Debug(msg, l.withContextField(ctx, fields)...)
+	l.Logger.Debug(msg, l.contextFields(ctx, fields)...)
 }
 
 func (l *ZapLogger) InfoWithContext(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Info(msg, l.withContextField(ctx, fields)...)
+	l.Logger.Info(msg, l.contextFields(ctx, fields)...)
 }
 
 func (l *ZapLogger) WarnWithContext(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Warn(msg, l.withContextField(ctx, fields)...)
+	l.Logger.Warn(msg, l.contextFields(ctx, fields)...)
 }
 
 func (l *ZapLogger) ErrorWithContext(ctx context.Context, msg string, fields ...zap.Field) {
-	fields = append(fields, ctxzap.TagsToFields(ctx)...)
-	l.Logger.Error(msg, l.withContextField(ctx, fields)...)
+	l.Logger.Error(msg, l.contextFields(ctx, fields)...)
 }
 
 func (l *ZapLogger) PanicWithContext(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Panic(msg, l.withContextField(ctx, fields)...)
+	l.Logger.Panic(msg, l.contextFields(ctx, fields)...)
 }
 
 func (l *ZapLogger) FatalWithContext(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Fatal(msg, l.withContextField(ctx, fields)...)
+	l.Logger.Fatal(msg, l.contextFields(ctx, fields)...)
 }
 
 // OptionsLogger Implements options for logger.

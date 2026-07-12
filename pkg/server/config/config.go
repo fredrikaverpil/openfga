@@ -247,7 +247,10 @@ type LogConfig struct {
 	TimestampFormat string
 
 	// OTLP configures exporting logs via OTLP. When enabled, logs are
-	// exported to the configured OTLP collector in addition to stdout.
+	// exported to the configured OTLP collector in addition to stdout. The
+	// exported stream is subject to the same sampling as stdout logs (zap's
+	// production sampler), so the collector does not receive every entry
+	// during bursts of identical messages.
 	OTLP OTLPLogConfig `mapstructure:"otlp"`
 }
 

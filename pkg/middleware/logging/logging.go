@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -70,19 +69,16 @@ func (r *reporter) PostCall(err error, rpcDuration time.Duration) {
 	if err != nil {
 		var internalError serverErrors.InternalError
 		if errors.As(err, &internalError) {
-			// ErrorWithContext appends the ctxzap tags itself.
 			r.fields = append(r.fields, zap.String(internalErrorKey, internalError.Unwrap().Error()))
 			r.logger.ErrorWithContext(r.ctx, err.Error(), r.fields...)
-			return
+		} else {
+			r.fields = append(r.fields, zap.Error(err))
+			r.logger.InfoWithContext(r.ctx, grpcReqCompleteKey, r.fields...)
 		}
 
-		r.fields = append(r.fields, ctxzap.TagsToFields(r.ctx)...)
-		r.fields = append(r.fields, zap.Error(err))
-		r.logger.InfoWithContext(r.ctx, grpcReqCompleteKey, r.fields...)
 		return
 	}
 
-	r.fields = append(r.fields, ctxzap.TagsToFields(r.ctx)...)
 	if r.serviceName == healthCheckService {
 		r.logger.DebugWithContext(r.ctx, grpcReqCompleteKey, r.fields...)
 	} else {

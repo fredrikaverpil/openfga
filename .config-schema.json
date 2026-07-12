@@ -491,7 +491,7 @@
                     "type": "object",
                     "properties": {
                         "enabled": {
-                            "description": "Enable OTLP log export. When enabled, logs are exported to the OTLP log collector in addition to stdout.",
+                            "description": "Enable OTLP log export. When enabled, logs are exported to the OTLP log collector in addition to stdout. The exported stream is subject to the same sampling as stdout logs, so the collector does not receive every log entry.",
                             "type": "boolean",
                             "default": false,
                             "x-env-variable": "OPENFGA_LOG_OTLP_ENABLED"

@@ -43,6 +43,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -241,7 +242,7 @@ func NewRunCommand() *cobra.Command {
 
 	flags.String("log-timestamp-format", defaultConfig.Log.TimestampFormat, "the timestamp format to use for log messages")
 
-	flags.Bool("log-otlp-enabled", defaultConfig.Log.OTLP.Enabled, "enable OTLP log export. When enabled, logs are exported to the OTLP log collector in addition to stdout")
+	flags.Bool("log-otlp-enabled", defaultConfig.Log.OTLP.Enabled, "enable OTLP log export. When enabled, logs are exported to the OTLP log collector in addition to stdout. The exported stream is subject to the same sampling as stdout logs, so the collector does not receive every log entry")
 
 	flags.String("log-otlp-endpoint", defaultConfig.Log.OTLP.Endpoint, "the grpc endpoint of the OTLP log collector")
 
@@ -483,9 +484,12 @@ func convertStringArrayToUintArray(stringArray []string) []uint {
 
 // newOTELLogCore creates an otelzap bridge core backed by an OTLP log provider
 // and returns a shutdown function that flushes and stops the provider.
-func newOTELLogCore(config *serverconfig.Config) (*otelzap.Core, func() error) {
+func newOTELLogCore(config *serverconfig.Config) (zapcore.Core, func() error) {
 	options := []telemetry.LoggerOption{
 		telemetry.WithLogOTLPEndpoint(config.Log.OTLP.Endpoint),
+		// The service identity of the emitting process comes from the
+		// resource. There is no log-specific service name setting, so this
+		// reuses the trace one; the two describe the same process.
 		telemetry.WithLogAttributes(
 			semconv.ServiceNameKey.String(config.Trace.ServiceName),
 			semconv.ServiceVersionKey.String(build.Version),
@@ -496,15 +500,19 @@ func newOTELLogCore(config *serverconfig.Config) (*otelzap.Core, func() error) {
 	}
 
 	lp := telemetry.MustNewLoggerProvider(options...)
+	// "openfga" names the instrumentation scope (the component emitting the
+	// records), not the service, so it is a constant rather than
+	// configuration.
 	core := otelzap.NewCore("openfga", otelzap.WithLoggerProvider(lp))
 
 	shutdown := func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
-		return errors.Join(lp.ForceFlush(ctx), lp.Shutdown(ctx))
+		// Shutdown flushes the batch processor before stopping it.
+		return lp.Shutdown(ctx)
 	}
 
-	return core, shutdown
+	return telemetry.NewFlushingCore(core, lp), shutdown
 }
 
 // telemetryConfig returns the function that must be called to shut down tracing.
