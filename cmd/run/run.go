@@ -241,7 +241,9 @@ func NewRunCommand() *cobra.Command {
 
 	flags.String("log-timestamp-format", defaultConfig.Log.TimestampFormat, "the timestamp format to use for log messages")
 
-	flags.String("log-otlp-endpoint", defaultConfig.Log.OTLP.Endpoint, "the endpoint of the OTLP log collector. If non-empty, logs are exported via OTLP in addition to stdout")
+	flags.Bool("log-otlp-enabled", defaultConfig.Log.OTLP.Enabled, "enable OTLP log export. When enabled, logs are exported to the OTLP log collector in addition to stdout")
+
+	flags.String("log-otlp-endpoint", defaultConfig.Log.OTLP.Endpoint, "the grpc endpoint of the OTLP log collector")
 
 	flags.Bool("log-otlp-tls-enabled", defaultConfig.Log.OTLP.TLS.Enabled, "use TLS connection for OTLP log collector")
 
@@ -427,7 +429,7 @@ func run(_ *cobra.Command, _ []string) {
 
 	// A log level of "none" produces a noop logger, so there is nothing to
 	// export in that case.
-	logOTLPEnabled := config.Log.OTLP.Endpoint != "" && config.Log.Level != "none"
+	logOTLPEnabled := config.Log.OTLP.Enabled && config.Log.Level != "none"
 
 	var logProviderCloser func() error
 	if logOTLPEnabled {

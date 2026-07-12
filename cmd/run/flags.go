@@ -164,6 +164,9 @@ func bindRunFlagsFunc(flags *pflag.FlagSet) func(*cobra.Command, []string) {
 		util.MustBindPFlag("log.timestampFormat", flags.Lookup("log-timestamp-format"))
 		util.MustBindEnv("log.timestampFormat", "OPENFGA_LOG_TIMESTAMP_FORMAT")
 
+		util.MustBindPFlag("log.otlp.enabled", flags.Lookup("log-otlp-enabled"))
+		util.MustBindEnv("log.otlp.enabled", "OPENFGA_LOG_OTLP_ENABLED")
+
 		util.MustBindPFlag("log.otlp.endpoint", flags.Lookup("log-otlp-endpoint"))
 		util.MustBindEnv("log.otlp.endpoint", "OPENFGA_LOG_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT")
 
